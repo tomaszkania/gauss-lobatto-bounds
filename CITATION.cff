@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated paper."
+title: "refined-gauss-lobatto-bounds"
+version: "0.99.1"
+authors:
+  - family-names: "Kania"
+    given-names: "Tomasz"
+    website: "https://users.math.cas.cz/~kania/"
+  - family-names: "Wąsowicz"
+    given-names: "Szymon"
+repository-code: "https://github.com/tomaszkania/refined-gauss-lobatto-bounds"
+abstract: "Companion code for the paper 'Refined Gauss--Lobatto bounds for odd-order convexity'."
+keywords:
+  - numerical integration
+  - Gauss quadrature
+  - Gauss-Lobatto
+  - convexity
+  - Peano kernel
+license: "License to be added"
