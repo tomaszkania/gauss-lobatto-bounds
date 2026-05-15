@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gauss-lobatto-bounds"
-version = "1.0.0"
+version = "1.1.0"
 description = "Companion code for 'Refined Gauss--Lobatto bounds for odd-order convexity' (Kania, Wąsowicz)."
 readme = "README.md"
 license = {text = "MIT"}
@@ -44,14 +44,16 @@ experiments = [
     "matplotlib>=3.7",
 ]
 dev = [
-    "pytest>=7.0.0",
-    "mypy>=1.0.0",
-    "ruff>=0.1.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "mypy>=1.8",
+    "pandas-stubs>=2.0",
+    "ruff>=0.5",
 ]
 
 [project.urls]
 Homepage = "https://users.math.cas.cz/~kania/"
-Repository = "https://github.com/tomasz-kania/gauss-lobatto-bounds"
+Repository = "https://github.com/tomaszkania/gauss-lobatto-bounds"
 
 [tool.setuptools.packages.find]
 where = ["src"]

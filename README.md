@@ -1,149 +1,151 @@
 # Gauss-Lobatto Bounds
 
-Companion code for the paper
+Companion code for the manuscript
 
-> **Refined Gauss–Lobatto bounds for odd-order convexity**  
-> Tomasz Kania and Szymon Wąsowicz  
-> (arXiv identifier to be added)
+> **Refined Gauss-Lobatto bounds for odd-order convexity**  
+> Tomasz Kania and Szymon Wąsowicz
 
-This repository contains a self-contained Python implementation of:
+The package implements the quadrature rules, certified estimators, Peano-kernel diagnostics, and reproducible experiments used in the paper.  The focus is certified integration under a higher-order convexity or concavity assumption, not merely high-order approximation of analytic test functions.
 
-- Gauss–Legendre, Gauss–Lobatto, and Gauss–Radau quadrature rules on `[-1, 1]`,
-- the certified estimator  
-  $$Q_n = \tfrac{3}{4}G_n + \tfrac{1}{4}L_{n+1},$$
-  together with the a posteriori bound  
-  $$\lvert I[f] - Q_n[f]\rvert \le \tfrac{1}{4}\lvert L_{n+1}[f] - G_n[f]\rvert,$$
-  valid for $(2n-1)$-convex or $(2n-1)$-concave integrands,
-- basic certified integration strategies (uniform partitions and greedy bisection),
-- reproducible numerical experiments and kernel plots.
+## What is included
 
-Tomasz Kania's webpage: https://users.math.cas.cz/~kania/
+- Gauss-Legendre, Gauss-Lobatto, and Gauss-Radau rules on `[-1, 1]`, with affine rescaling to arbitrary intervals.
+- The certified estimator
+  
+  ```text
+  Q_n = (3/4) G_n + (1/4) L_{n+1}
+  ```
+  with the a posteriori certificate
+  
+  ```text
+  |I[f] - Q_n[f]| <= (1/4) |L_{n+1}[f] - G_n[f]|,
+  ```
+  valid for `(2n-1)`-convex or `(2n-1)`-concave integrands.
+- Uniform and greedy-bisection composite strategies.
+- Peano-kernel evaluators for the Gauss/Lobatto dominance check and the Radau midpoint obstruction.
+- Application-focused benchmarks, including truncated powers from spline models and near-pole Stieltjes kernels.
+- Pytest coverage for rule exactness, kernel properties, certified error bounds, and experiment helpers.
 
 ## Installation
 
 ```bash
-# Basic installation
-pip install -e .
-
-# With experiment dependencies (pandas, matplotlib)
-pip install -e ".[experiments]"
-
-# With development dependencies (pytest, mypy, ruff)
-pip install -e ".[dev]"
+python -m pip install -e .
 ```
 
-## Repository Layout
+Optional experiment and development dependencies are available with extras:
 
+```bash
+python -m pip install -e ".[experiments]"
+python -m pip install -e ".[dev]"
 ```
+
+The package requires Python 3.10 or newer and NumPy.
+
+## Quick start
+
+```python
+from __future__ import annotations
+
+import math
+
+from gauss_lobatto_bounds import CertifiedAdaptiveIntegrator, integrate_uniform
+
+# Certified composite integration on a fixed uniform partition.
+result = integrate_uniform(
+    f=math.exp,
+    interval=(0.0, 1.0),
+    n=4,
+    n_intervals=5,
+)
+print(result.approx)
+print(result.bound)
+
+# Greedy bisection until the certified global bound is below tolerance.
+integrator = CertifiedAdaptiveIntegrator(n=4, tol=1e-8)
+result = integrator.integrate(f=lambda x: 1.0 / (x + 1e-6), interval=(0.0, 1.0))
+print(result)
+```
+
+A truncated-power example, matching the revised numerical section:
+
+```python
+from gauss_lobatto_bounds import CertifiedAdaptiveIntegrator
+
+f = lambda x: max(x - 0.37, 0.0) ** 7
+exact = 0.63 ** 8 / 8.0
+
+result = CertifiedAdaptiveIntegrator(n=4, tol=1e-8).integrate(
+    f=f,
+    interval=(0.0, 1.0),
+)
+
+assert abs(result.approx - exact) <= result.bound + 1e-15
+print(result.num_evals, result.bound)
+```
+
+## Repository layout
+
+```text
 src/gauss_lobatto_bounds/
-├── __init__.py       # Clean exports
+├── __init__.py       # Public exports
 ├── rules.py          # Quadrature rules and Peano kernels
 ├── adaptive.py       # Certified integration strategies
-└── experiments.py    # Benchmark suite and runners
+└── experiments.py    # Benchmark suites and experiment runners
+
 tests/
-├── test_rules.py     # Comprehensive rule tests
-└── test_adaptive.py  # Integration strategy tests
+├── test_rules.py
+├── test_adaptive.py
+└── test_experiments.py
+
 notebooks/
 ├── numerical_experiments_frontend.ipynb
 └── classical_error_exercise.ipynb
 ```
 
-## Notebooks
+## Core API
 
-The repository contains two Jupyter notebooks used to generate figures and tables in the paper:
+### Rules and kernels
 
-- `notebooks/numerical_experiments_frontend.ipynb` — the main numerical experiments (kernel plots, certified stopping criteria,
-  and 3/5/7/9-convex benchmarks).
-- `notebooks/classical_error_exercise.ipynb` — a short companion note on **classical a priori error bounds** (max-norm bounds
-  involving $\|f^{(2n)}\|_\infty$), common implementation pitfalls (e.g. tolerance sweep ordering), and how these relate to the
-  certified a posteriori bound used in the paper.
+- `gauss_legendre_rule(n)` returns the `n`-point Gauss-Legendre rule.
+- `gauss_lobatto_rule(n)` returns the `(n+1)`-point Gauss-Lobatto rule in the paper's indexing.
+- `gauss_radau_left_rule(n)` and `gauss_radau_right_rule(n)` return the `(n+1)`-point Radau endpoint rules.
+- `peano_kernel_gauss_legendre(n, t)` and `peano_kernel_gauss_lobatto(n, t)` evaluate the Peano kernels used in the refined bracket.
+- `radau_curvature_kernel_midpoint(n, t)` evaluates the sign-changing Radau midpoint kernel.
 
+### Certified integration
 
-## Quick Start
-
-```python
-from gauss_lobatto_bounds import (
-    gauss_legendre_rule,
-    gauss_lobatto_rule,
-    integrate_uniform,
-    CertifiedAdaptiveIntegrator,
-    benchmark_suite,
-)
-import math
-
-# Create quadrature rules
-G3 = gauss_legendre_rule(3)
-L4 = gauss_lobatto_rule(4)
-
-# Integrate with certified bounds
-result = integrate_uniform(f=math.exp, interval=(0.0, 1.0), n=3, n_intervals=10)
-print(f"Approximation: {result.approx}")
-print(f"Certified bound: {result.bound}")
-
-# Adaptive integration to tolerance
-integrator = CertifiedAdaptiveIntegrator(n=3, tol=1e-10)
-result = integrator.integrate(f=math.exp, interval=(0.0, 1.0))
-print(f"Reached tolerance with {result.n_intervals} intervals")
-
-# Run benchmark suite
-for problem in benchmark_suite():
-    print(f"{problem.name}: {problem.exact:.10f}")
-```
-
-## Running Tests
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=gauss_lobatto_bounds
-
-# Type checking
-mypy src/
-
-# Linting
-ruff check src/
-```
-
-## Key Features
-
-### Quadrature Rules
-
-- `gauss_legendre_rule(n)` — n-point Gauss–Legendre rule (exact for polynomials up to degree 2n−1)
-- `gauss_lobatto_rule(n)` — n-point Gauss–Lobatto rule (includes endpoints ±1)
-- `gauss_radau_left_rule(n)` — (n+1)-point left Radau rule (includes −1)
-- `gauss_radau_right_rule(n)` — (n+1)-point right Radau rule (includes +1)
-
-### Peano Kernels
-
-- `gauss_peano_kernel(n, x)` — Peano kernel K_G for Gauss–Legendre
-- `lobatto_peano_kernel(n, x)` — Peano kernel K_L for Gauss–Lobatto
-- `radau_curvature_kernel(n, x)` — Curvature kernel for Radau rule
-- `kernel_dominance_ratio(n, num_points)` — Verify K_L ≥ K_G inequality
-
-### Certified Integration
-
-- `integrate_uniform(f, interval, n, m)` — Fixed uniform partitioning
-- `find_min_intervals_uniform(f, interval, n, tol)` — Find minimal partition count
-- `CertifiedAdaptiveIntegrator` — Greedy bisection to tolerance
+- `integrate_uniform(f, interval, n, n_intervals)` evaluates a fixed uniform composite rule.
+- `find_min_intervals_uniform(f, interval, n, tol)` searches for the smallest uniform partition size reaching the certificate.
+- `CertifiedAdaptiveIntegrator(n, tol).integrate(f, interval)` performs greedy bisection using local certified bounds.
+- `CompositeRule.create(...)` constructs a reusable composite rule object.
 
 ### Experiments
 
-- `benchmark_suite()` — Standard test problems
-- `extended_benchmark_suite()` — Additional test functions
-- `compare_Qn_vs_Pn(f, interval, n, ...)` — Compare certified vs standard estimators
-- `convergence_table(f, interval, n, ...)` — Convergence analysis
+- `default_benchmark_suite()` contains smooth sanity checks.
+- `application_benchmark_suite()` contains the truncated-power and Stieltjes-kernel examples used to address the revised numerical discussion.
+- `compare_with_global_gauss_legendre(...)` compares the certified estimator with a global Gauss-Legendre rule when an exact integral is available.
+- `run_suite(...)` and `convergence_table(...)` produce pandas DataFrames for notebooks and manuscript tables.
 
-## Notes on Numerical Precision
+## Running checks
 
-The rules are computed in double precision (`float64`) using `numpy.polynomial`.
-For the experiment sizes in the paper (small n, moderate refinement), this is
-typically sufficient. If you need higher precision arithmetic (e.g. to push
-tolerances well below `1e-14` on ill-conditioned problems), consider replacing
-the backend for node computation with an arbitrary-precision library.
+```bash
+pytest
+ruff check src tests
+mypy src
+```
+
+The main mathematical checks covered by the tests are:
+
+- polynomial exactness of Gauss, Lobatto, and Radau rules;
+- positivity and dominance of Peano kernels on stable grids;
+- oddness/sign change of the Radau midpoint kernel;
+- validity of the certified bound on convex and concave examples;
+- exact integral metadata for the application benchmark suite.
+
+## Numerical precision
+
+The implementation uses double precision (`float64`) and NumPy's polynomial routines.  This is appropriate for the small and moderate orders used in the paper.  For very high-order global rules or tolerances far below `1e-14`, arbitrary precision or a specialised node generator may be preferable.
 
 ## Citation
 
-If you use this code, please cite the paper (arXiv information forthcoming).
-You can also use the metadata in `CITATION.cff`.
+If you use this code, cite the associated paper and the metadata in `CITATION.cff`.

@@ -20,20 +20,20 @@ British English is used throughout the documentation.
 
 Version
 -------
-1.0.0
+1.1.0
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from .adaptive import (
     CertifiedAdaptiveIntegrator,
-    IntegrationResult,
     find_min_intervals_uniform,
     integrate_uniform,
 )
@@ -46,15 +46,20 @@ __all__ = [
     "BenchmarkProblem",
     "default_benchmark_suite",
     "extended_benchmark_suite",
+    "truncated_power_problem",
+    "stieltjes_kernel_problem",
+    "application_benchmark_suite",
     "run_suite",
     "run_suite_single_tol",
     "run_table_min_intervals_by_tol",
     "compare_Qn_vs_Pn",
     "run_experiment",
     "convergence_table",
+    "global_gauss_legendre_integral",
+    "compare_with_global_gauss_legendre",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +196,7 @@ def extended_benchmark_suite() -> list[BenchmarkProblem]:
         return math.sqrt(x)
 
     def inv_sq(x: float) -> float:
-        """Function 1/(1+x)²."""
+        """Evaluate 1/(1+x)²."""
         return 1.0 / (1.0 + x) ** 2
 
     def atan_f(x: float) -> float:
@@ -248,8 +253,243 @@ def extended_benchmark_suite() -> list[BenchmarkProblem]:
     return suite
 
 
-def _ensure_pandas() -> "type[pd]":
-    """Import and return the pandas module, or raise with a helpful message."""
+
+def truncated_power_problem(
+    *,
+    knot: float = 0.37,
+    power: float = 7.0,
+    interval: tuple[float, float] = (0.0, 1.0),
+) -> BenchmarkProblem:
+    """
+    Create a truncated-power benchmark problem.
+
+    Parameters
+    ----------
+    knot : float, default=0.37
+        Knot location c in ``(x - c)_+^power``.
+    power : float, default=7.0
+        Power used in the truncated power.  The manuscript uses ``power=7``
+        for the first genuinely new case ``n=4``.
+    interval : tuple of float, default=(0.0, 1.0)
+        Integration interval ``(a, b)``.
+
+    Returns
+    -------
+    BenchmarkProblem
+        Problem with a closed-form exact integral.
+
+    Raises
+    ------
+    ValueError
+        If the interval is invalid or ``power <= -1``.
+    """
+    a, b = interval
+    if not (a < b):
+        raise ValueError(f"Require a < b, but received a={a}, b={b}.")
+    if power <= -1.0:
+        raise ValueError(f"Require power > -1 for integrability, received {power}.")
+
+    def f(x: float) -> float:
+        return float(max(x - knot, 0.0) ** power)
+
+    exact = (
+        max(b - knot, 0.0) ** (power + 1.0)
+        - max(a - knot, 0.0) ** (power + 1.0)
+    ) / (power + 1.0)
+
+    order = int(power) if float(power).is_integer() and power >= 0 else -1
+    return BenchmarkProblem(
+        name=f"(x-{knot:g})_+^{power:g} on [{a:g}, {b:g}]",
+        f=f,
+        interval=interval,
+        exact=float(exact),
+        convexity_order=order,
+        notes=(
+            "Truncated-power spline basis element.  For power=2n-1 this is "
+            "(2n-1)-convex with a distributional derivative at the knot."
+        ),
+    )
+
+
+def stieltjes_kernel_problem(
+    *,
+    delta: float = 1e-6,
+    interval: tuple[float, float] = (0.0, 1.0),
+) -> BenchmarkProblem:
+    """
+    Create a near-pole Stieltjes-kernel benchmark problem.
+
+    Parameters
+    ----------
+    delta : float, default=1e-6
+        Positive pole distance in ``1 / (x + delta)``.
+    interval : tuple of float, default=(0.0, 1.0)
+        Integration interval ``(a, b)``.  It must satisfy ``a + delta > 0``.
+
+    Returns
+    -------
+    BenchmarkProblem
+        Problem with exact integral ``log((b + delta) / (a + delta))``.
+
+    Raises
+    ------
+    ValueError
+        If the interval is invalid, ``delta <= 0``, or the pole is not outside
+        the integration interval.
+    """
+    a, b = interval
+    if delta <= 0.0:
+        raise ValueError(f"Require delta > 0, received {delta}.")
+    if not (a < b):
+        raise ValueError(f"Require a < b, but received a={a}, b={b}.")
+    if a + delta <= 0.0:
+        raise ValueError("Require a + delta > 0 so that the kernel is finite.")
+
+    def f(x: float) -> float:
+        return 1.0 / (x + delta)
+
+    exact = math.log((b + delta) / (a + delta))
+    return BenchmarkProblem(
+        name=f"1/(x+{delta:g}) on [{a:g}, {b:g}]",
+        f=f,
+        interval=interval,
+        exact=float(exact),
+        convexity_order=-1,
+        notes=(
+            "Stieltjes-type kernel; f^(2n) is positive for every n, hence the "
+            "function is (2n-1)-convex for all n."
+        ),
+    )
+
+
+def application_benchmark_suite() -> list[BenchmarkProblem]:
+    """
+    Return the application-focused benchmark suite used in the revision.
+
+    Returns
+    -------
+    list of BenchmarkProblem
+        Truncated-power and Stieltjes-kernel examples with exact integrals.
+    """
+    return [
+        truncated_power_problem(knot=0.37, power=7.0),
+        stieltjes_kernel_problem(delta=1e-4),
+        stieltjes_kernel_problem(delta=1e-6),
+    ]
+
+
+def global_gauss_legendre_integral(
+    *,
+    f: ScalarFunc,
+    interval: tuple[float, float],
+    n_nodes: int,
+) -> float:
+    """
+    Apply a global Gauss-Legendre rule on one interval.
+
+    Parameters
+    ----------
+    f : callable
+        Integrand.
+    interval : tuple of float
+        Integration interval ``(a, b)``.
+    n_nodes : int
+        Number of Gauss-Legendre nodes.
+
+    Returns
+    -------
+    float
+        Global Gauss-Legendre approximation.
+
+    Raises
+    ------
+    ValueError
+        If ``n_nodes < 1`` or the interval is invalid.
+    """
+    if n_nodes < 1:
+        raise ValueError(f"Require n_nodes >= 1, received {n_nodes}.")
+    a, b = interval
+    if not (a < b):
+        raise ValueError(f"Require a < b, but received a={a}, b={b}.")
+    return gauss_legendre_rule(n_nodes).apply(f, a=a, b=b)
+
+
+def compare_with_global_gauss_legendre(
+    *,
+    problem: BenchmarkProblem,
+    certified_n: int,
+    tol: float,
+    gauss_nodes: Sequence[int],
+    max_intervals: int = 200_000,
+) -> pd.DataFrame:
+    """
+    Compare certified greedy integration with global Gauss-Legendre rules.
+
+    The Gauss-Legendre errors are true errors against ``problem.exact``.  They
+    are useful for benchmarking but are not a posteriori certificates.
+
+    Parameters
+    ----------
+    problem : BenchmarkProblem
+        Benchmark with a known exact integral.
+    certified_n : int
+        Parameter n for the certified estimator Q_n.
+    tol : float
+        Certified tolerance for greedy bisection.
+    gauss_nodes : sequence of int
+        Node counts for global Gauss-Legendre comparisons.
+    max_intervals : int, default=200_000
+        Maximum number of intervals allowed for the certified run.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A comparison table with certified and global Gauss-Legendre results.
+    """
+    if tol <= 0.0:
+        raise ValueError(f"Require tol > 0, received {tol}.")
+
+    certified = CertifiedAdaptiveIntegrator(
+        n=certified_n,
+        tol=tol,
+        max_intervals=max_intervals,
+    ).integrate(f=problem.f, interval=problem.interval)
+
+    rows: list[dict[str, object]] = [
+        {
+            "problem": problem.name,
+            "method": f"certified Q_{certified_n}",
+            "evaluations": certified.num_evals,
+            "n_intervals": certified.n_intervals,
+            "approx": certified.approx,
+            "certified_bound": certified.bound,
+            "abs_error": abs(certified.approx - problem.exact),
+        }
+    ]
+
+    for n_nodes in gauss_nodes:
+        approx = global_gauss_legendre_integral(
+            f=problem.f,
+            interval=problem.interval,
+            n_nodes=int(n_nodes),
+        )
+        rows.append(
+            {
+                "problem": problem.name,
+                "method": f"global G_{int(n_nodes)}",
+                "evaluations": int(n_nodes),
+                "n_intervals": 1,
+                "approx": approx,
+                "certified_bound": np.nan,
+                "abs_error": abs(approx - problem.exact),
+            }
+        )
+
+    return _dataframe(rows)
+
+
+def _dataframe(data: Any) -> pd.DataFrame:
+    """Create a pandas DataFrame, or raise with a helpful message."""
     try:
         import pandas as pd
     except ImportError as exc:
@@ -257,7 +497,7 @@ def _ensure_pandas() -> "type[pd]":
             "pandas is required for this function. "
             "Install it via `pip install pandas`."
         ) from exc
-    return pd
+    return pd.DataFrame(data)
 
 
 def run_suite(
@@ -268,7 +508,7 @@ def run_suite(
     method: Literal["uniform_minimal", "uniform_fixed", "greedy_bisection"] = "uniform_minimal",
     n_intervals: int = 1,
     max_intervals: int = 200_000,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     Run a batch of certified integrations and return a pandas DataFrame.
 
@@ -311,8 +551,6 @@ def run_suite(
     """
     if tol <= 0:
         raise ValueError(f"Tolerance must be positive, but received tol={tol}.")
-
-    pd = _ensure_pandas()
 
     rows: list[dict[str, object]] = []
 
@@ -358,7 +596,7 @@ def run_suite(
             }
         )
 
-    return pd.DataFrame(rows)
+    return _dataframe(rows)
 
 
 def run_suite_single_tol(
@@ -369,7 +607,7 @@ def run_suite_single_tol(
     method: Literal["uniform_minimal", "uniform_fixed", "greedy_bisection"] = "uniform_minimal",
     n_intervals: int = 1,
     max_intervals: int = 200_000,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     Backwards-compatible wrapper mirroring interactive notebook usage.
 
@@ -467,7 +705,7 @@ def run_table_min_intervals_by_tol(
     n_list: Sequence[int],
     tol_list: Sequence[float],
     max_intervals: int = 200_000,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     Produce a table of minimal N (uniform partitions) required to reach each tolerance.
 
@@ -502,8 +740,6 @@ def run_table_min_intervals_by_tol(
     ...     tol_list=[1e-4, 1e-6, 1e-8],
     ... )
     """
-    pd = _ensure_pandas()
-
     # IMPORTANT: warm-starting n_start relies on the monotonicity
     #   minimal N(tol) is non-decreasing as tol decreases.
     # Therefore we iterate tolerances from coarse to tight (largest to smallest).
@@ -511,7 +747,7 @@ def run_table_min_intervals_by_tol(
     data: dict[str, list[int | float]] = {"tol": tol_sorted}
 
     for n in n_list:
-        n_values: list[int] = []
+        n_values: list[int | float] = []
         # Warm start: minimal N is non-decreasing as tolerance decreases.
         n_start = 1
 
@@ -529,7 +765,7 @@ def run_table_min_intervals_by_tol(
 
         data[f"N_{2 * n - 1}"] = n_values
 
-    return pd.DataFrame(data)
+    return _dataframe(data)
 
 
 def _Qn_single_interval(
@@ -573,7 +809,7 @@ def compare_Qn_vs_Pn(
     *,
     n: int,
     problems: Sequence[BenchmarkProblem],
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     Compare Q_n (certified) against P_n (degree-raising) on single-interval problems.
 
@@ -597,8 +833,6 @@ def compare_Qn_vs_Pn(
     P_n achieves degree of exactness 2n (vs. 2n-1 for both G_n and L_{n+1}),
     but Q_n has a certified error bound for (2n-1)-convex functions.
     """
-    pd = _ensure_pandas()
-
     rows: list[dict[str, object]] = []
 
     for prob in problems:
@@ -627,7 +861,7 @@ def compare_Qn_vs_Pn(
             }
         )
 
-    return pd.DataFrame(rows)
+    return _dataframe(rows)
 
 
 def convergence_table(
@@ -635,7 +869,7 @@ def convergence_table(
     problem: BenchmarkProblem,
     n_list: Sequence[int],
     interval_counts: Sequence[int],
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     Create a convergence table showing errors across n values and subinterval counts.
 
@@ -663,8 +897,6 @@ def convergence_table(
     ...     problem=prob, n_list=[2, 3, 4], interval_counts=[1, 2, 4, 8]
     ... )
     """
-    pd = _ensure_pandas()
-
     rows: list[dict[str, object]] = []
 
     for n in n_list:
@@ -691,4 +923,4 @@ def convergence_table(
                 }
             )
 
-    return pd.DataFrame(rows)
+    return _dataframe(rows)

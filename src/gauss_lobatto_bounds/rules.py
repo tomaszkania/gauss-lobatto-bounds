@@ -16,14 +16,15 @@ British English is used throughout the documentation.
 
 Version
 -------
-1.0.0
+1.1.0
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal, Union, overload
+from typing import TYPE_CHECKING, Literal, Union, cast, overload
 
 import numpy as np
 from numpy.polynomial import Polynomial
@@ -47,7 +48,7 @@ __all__ = [
     "certified_estimator_weights",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 ScalarFunc = Callable[[float], float]
 ArrayLike = Union[float, "NDArray[np.floating]"]
@@ -230,7 +231,7 @@ def apply_rule_on_interval(
     eval_fn: ScalarFunc | None = None,
 ) -> float:
     """
-    Convenience wrapper: apply a quadrature rule on a given interval.
+    Apply a quadrature rule on a given interval.
 
     Parameters
     ----------
@@ -414,7 +415,7 @@ def _poly_divide_by_linear(p: Polynomial, root: float) -> Polynomial:
             "check the formula or numerical precision."
         )
 
-    return quotient
+    return cast(Polynomial, quotient)
 
 
 def gauss_radau_left_rule(n: int) -> QuadratureRule:

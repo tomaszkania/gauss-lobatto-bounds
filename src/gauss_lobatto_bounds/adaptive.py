@@ -26,14 +26,14 @@ British English is used throughout the documentation.
 
 Version
 -------
-1.0.0
+1.1.0
 """
 
 from __future__ import annotations
 
 import heapq
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -45,7 +45,7 @@ from .rules import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    pass
 
 __all__ = [
     "IntegrationResult",
@@ -57,7 +57,7 @@ __all__ = [
     "estimate_convergence_rate",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +96,7 @@ class IntegrationResult:
     @property
     def is_certified(self) -> bool:
         """Return True if a finite certified bound is available."""
-        return np.isfinite(self.bound)
+        return bool(np.isfinite(self.bound))
 
     def __repr__(self) -> str:
         """Return a detailed string representation."""
@@ -644,7 +644,7 @@ class CompositeRule:
         n_subintervals: int,
     ) -> CompositeRule:
         """
-        Factory method to create a composite rule.
+        Create a composite rule.
 
         Parameters
         ----------

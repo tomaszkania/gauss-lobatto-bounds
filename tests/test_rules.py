@@ -7,8 +7,6 @@ and Gauss–Radau quadrature rules, as well as the Peano kernel computations.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pytest
 
@@ -316,6 +314,25 @@ class TestRadauCurvatureKernel:
         # At t = 1, (x - t)_+ = 0 for x ≤ 1.
         k1 = radau_curvature_kernel_midpoint(n, 1.0)
         assert abs(k1) < 1e-13
+
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4])
+    def test_kernel_is_odd(self, n: int) -> None:
+        """Test that the Radau midpoint kernel is numerically odd."""
+        t = np.linspace(-0.95, 0.95, 101)
+        kernel = radau_curvature_kernel_midpoint(n, t)
+        reflected = radau_curvature_kernel_midpoint(n, -t)
+
+        np.testing.assert_allclose(kernel, -reflected, atol=1e-13)
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4])
+    def test_kernel_changes_sign(self, n: int) -> None:
+        """Test that the Radau midpoint kernel changes sign."""
+        t = np.linspace(-0.95, 0.95, 101)
+        kernel = radau_curvature_kernel_midpoint(n, t)
+
+        assert float(np.min(kernel)) < 0.0
+        assert float(np.max(kernel)) > 0.0
 
     def test_scalar_input(self) -> None:
         """Test that scalar input returns a scalar."""
